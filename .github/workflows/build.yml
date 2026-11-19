@@ -91,7 +91,7 @@ jobs:
 
       - name: Build Tauri installer (Linux)
         if: matrix.platform == 'linux'
-        run: npm run build:tauri -- --bundles deb
+        run: npm run build:tauri -- --bundles appimage
 
       - name: Prepare Windows artifacts
         if: matrix.platform == 'windows'
@@ -115,32 +115,35 @@ jobs:
           mkdir -p out
           VERSION=$(node -p "require('./package.json').version")
           shopt -s nullglob
-          files=(src-tauri/target/release/bundle/deb/*.deb)
+          files=(src-tauri/target/release/bundle/appimage/*.AppImage)
           if [ ${#files[@]} -eq 0 ]; then
-            echo "Deb package not found"
+            echo "AppImage not found"
             exit 1
           fi
           src="${files[0]}"
           if [ "${{ matrix.canonical }}" = "true" ]; then
-            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64.deb"
+            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64.AppImage"
           else
-            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64-${{ matrix.label }}.deb"
+            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64-${{ matrix.label }}.AppImage"
           fi
           ls -lh out
 
-      - name: Check installer size (<= 20 MB)
+      - name: Check installer size
         shell: bash
         run: |
           set -euo pipefail
-          limit=$((20 * 1024 * 1024))
           fail=0
           for f in out/*; do
             [ -f "$f" ] || continue
+            case "$f" in
+              *.AppImage) limit=$((100 * 1024 * 1024)); label="100 MB" ;;
+              *) limit=$((20 * 1024 * 1024)); label="20 MB" ;;
+            esac
             size=$(wc -c < "$f" | tr -d ' ')
             mb=$(awk "BEGIN {printf \"%.2f\", $size/1024/1024}")
-            echo "$f: ${size} bytes (${mb} MB)"
+            echo "$f: ${size} bytes (${mb} MB, limit ${label})"
             if [ "$size" -gt "$limit" ]; then
-              echo "::error file=$f::Installer exceeds 20 MB limit (${mb} MB)"
+              echo "::error file=$f::Installer exceeds ${label} limit (${mb} MB)"
               fail=1
             fi
           done
