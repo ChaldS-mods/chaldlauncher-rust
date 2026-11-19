@@ -19,8 +19,11 @@ export interface MojangGameStatus {
 }
 
 export interface MojangStatus {
-  /** false: not Windows, the page only explains why */
+  /** false: this platform cannot run these games from the launcher */
   supported: boolean;
+  os: 'windows' | 'linux' | 'other';
+  /** Bedrock quick-connect (server) is available */
+  quickServer: boolean;
   launcherFound: boolean;
   games: MojangGameStatus[];
 }

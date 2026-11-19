@@ -109,13 +109,17 @@ export function registerIpc(s: Services, trustedOrigins: string[], extra?: {
         execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { timeout: 20000, windowsHide: true, maxBuffer: 1 << 20 }, (err, out) => (err ? reject(err) : resolve(out))),
       ),
     exists: (file) => fsp.access(file).then(() => true, () => false),
-    // only URIs built by MojangGames (minecraft:, ms-windows-store:) get here, never a string from the renderer
+    // only URIs built by MojangGames (minecraft:, ms-windows-store:, https:) get here, never a string from the renderer
     openUri: (uri) => shell.openExternal(uri),
     spawnDetached: (file, args) => {
       const child = spawn(file, args, { detached: true, stdio: 'ignore' });
       child.on('error', () => undefined);
       child.unref();
     },
+    run: (file, args) =>
+      new Promise((resolve, reject) =>
+        execFile(file, args, { timeout: 120000, windowsHide: true, maxBuffer: 1 << 20 }, (err, out) => (err ? reject(err) : resolve(out))),
+      ),
   });
   handle('mojang:status', () => mojang.status());
   handle('mojang:launch', (arg) => {
