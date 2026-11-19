@@ -12,7 +12,7 @@ export default defineConfig({
     outDir: `${root}dist/renderer`,
     emptyOutDir: true,
     sourcemap: false,
-    minify: 'esbuild',
+    minify: true,
     target: 'es2022',
     cssCodeSplit: true,
     reportCompressedSize: false,
@@ -20,9 +20,6 @@ export default defineConfig({
       input: {
         main: `${root}src/renderer/index.html`,
         overlay: `${root}src/renderer/overlay.html`,
-      },
-      output: {
-        manualChunks: undefined,
       },
     },
   },
