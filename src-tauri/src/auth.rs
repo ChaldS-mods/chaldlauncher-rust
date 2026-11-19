@@ -1,9 +1,10 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
+use keyring::Entry;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -230,8 +231,12 @@ fn msa(session: Session) -> LaunchAuth {
 }
 
 /// Microsoft sign-in and the stored refresh token.
+/// Stored in the system's secure credential storage (Keychain/Credential Manager/Secret Service)
+/// instead of a plaintext JSON file. Legacy `auth.json` is migrated on first load and removed.
 pub struct AuthService {
+    /// Legacy plaintext file path, kept only for migration/fallback.
     file: PathBuf,
+    data_dir: PathBuf,
     stored: Mutex<Option<Stored>>,
     session: Mutex<Option<Session>>,
     loaded: Mutex<bool>,
@@ -239,9 +244,10 @@ pub struct AuthService {
 }
 
 impl AuthService {
-    pub fn new(data_dir: &std::path::Path) -> Self {
+    pub fn new(data_dir: &Path) -> Self {
         Self {
             file: data_dir.join("auth.json"),
+            data_dir: data_dir.to_path_buf(),
             stored: Mutex::new(None),
             session: Mutex::new(None),
             loaded: Mutex::new(false),
@@ -253,20 +259,63 @@ impl AuthService {
         self.cancel.store(true, Ordering::SeqCst);
     }
 
+    fn keyring_entry(&self) -> Option<Entry> {
+        let profile = self
+            .data_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("default");
+        Entry::new("studio.chald.launcher", &format!("microsoft-auth:{profile}")).ok()
+    }
+
+    fn load_from_keyring(&self) -> Option<Stored> {
+        let entry = self.keyring_entry()?;
+        let secret = entry.get_password().ok()?;
+        serde_json::from_str::<Stored>(&secret).ok()
+    }
+
+    fn save_to_keyring(&self, stored: &Stored) -> Result<(), String> {
+        let entry = self.keyring_entry().ok_or_else(|| "keyring entry unavailable".to_string())?;
+        let secret = serde_json::to_string(stored).map_err(|e| e.to_string())?;
+        entry.set_password(&secret).map_err(|e| e.to_string())
+    }
+
+    fn delete_from_keyring(&self) {
+        if let Some(entry) = self.keyring_entry() {
+            let _ = entry.delete_credential();
+        }
+    }
+
     fn load(&self) {
         let mut loaded = self.loaded.lock().unwrap();
         if *loaded {
             return;
         }
         *loaded = true;
+
+        if let Some(stored) = self.load_from_keyring() {
+            *self.stored.lock().unwrap() = Some(stored);
+            let _ = std::fs::remove_file(&self.file);
+            return;
+        }
+
+        // Migrate legacy plaintext auth.json -> secure storage.
         if let Ok(bytes) = std::fs::read(&self.file) {
             if let Ok(stored) = serde_json::from_slice::<Stored>(&bytes) {
-                *self.stored.lock().unwrap() = Some(stored);
+                *self.stored.lock().unwrap() = Some(stored.clone());
+                if self.save_to_keyring(&stored).is_ok() {
+                    let _ = std::fs::remove_file(&self.file);
+                }
             }
         }
     }
 
     fn persist(&self, stored: &Stored) -> AppResult<()> {
+        if self.save_to_keyring(stored).is_ok() {
+            let _ = std::fs::remove_file(&self.file);
+            return Ok(());
+        }
+        // Fallback: keep working if secure storage is unavailable.
         if let Some(parent) = self.file.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -433,6 +482,7 @@ impl AuthService {
     pub fn logout(&self, settings: &Settings) -> AppResult<Value> {
         *self.session.lock().unwrap() = None;
         *self.stored.lock().unwrap() = None;
+        self.delete_from_keyring();
         let _ = std::fs::remove_file(&self.file);
         Ok(self.state(settings))
     }
@@ -708,5 +758,46 @@ mod tests {
         assert_eq!(state["mode"], "microsoft");
         assert_eq!(state["loggedIn"], false);
         assert_eq!(state["name"], Value::Null);
+    }
+
+    #[test]
+    fn migrates_legacy_auth_json_to_secure_storage() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("auth.json");
+        let stored = Stored {
+            refresh_token: "rt".to_string(),
+            uuid: "u".to_string(),
+            name: "Steve".to_string(),
+            client_id: "cid".to_string(),
+        };
+        std::fs::write(&file, serde_json::to_vec_pretty(&stored).unwrap()).unwrap();
+        let auth = AuthService::new(dir.path());
+        auth.load();
+        assert_eq!(auth.stored.lock().unwrap().as_ref().unwrap().name, "Steve");
+        // If secure storage is available the plaintext file is removed; if not, fallback keeps it.
+        if auth.load_from_keyring().is_some() {
+            assert!(!file.exists());
+        }
+    }
+
+    #[test]
+    fn logout_clears_stored_auth() {
+        let dir = tempfile::tempdir().unwrap();
+        let auth = AuthService::new(dir.path());
+        {
+            let mut stored = auth.stored.lock().unwrap();
+            *stored = Some(Stored {
+                refresh_token: "rt".to_string(),
+                uuid: "u".to_string(),
+                name: "Steve".to_string(),
+                client_id: "cid".to_string(),
+            });
+        }
+        *auth.loaded.lock().unwrap() = true;
+        let state = auth.logout(&Settings::default()).unwrap();
+        assert_eq!(state["loggedIn"], false);
+        assert!(auth.stored.lock().unwrap().is_none());
+        assert!(auth.load_from_keyring().is_none());
+        assert!(!dir.path().join("auth.json").exists());
     }
 }

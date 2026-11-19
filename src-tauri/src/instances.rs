@@ -677,6 +677,7 @@ pub fn set_cover_from_file(data: &Path, settings: &Settings, id: &str, source: &
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::collections::HashSet;
 
     fn input(name: &str, id: Option<&str>) -> Value {
         let mut value = json!({
@@ -701,19 +702,20 @@ mod tests {
     fn create_list_update_duplicate_remove() {
         let dir = tempfile::tempdir().unwrap();
         let settings = Settings::default();
-        let created = create(dir.path(), &settings, &input("My Pack", None)).unwrap();
+        let created = create(dir.path(), &settings, &HashSet::new(), &input("My Pack", None)).unwrap();
         assert_eq!(created.meta.name, "My Pack");
         assert_eq!(created.state, "not-installed");
         assert!(created.game_dir.ends_with(".minecraft"));
         assert!(Path::new(&created.game_dir).join("mods").is_dir());
 
-        let listed = list(dir.path(), &settings).unwrap();
+        let listed = list(dir.path(), &settings, &HashSet::new()).unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].mod_count, 0);
 
         let updated = update(
             dir.path(),
             &settings,
+            &HashSet::new(),
             &json!({ "id": created.meta.id, "patch": { "name": "Renamed" } }),
         )
         .unwrap();
@@ -722,11 +724,12 @@ mod tests {
         let duplicated = duplicate(
             dir.path(),
             &settings,
+            &HashSet::new(),
             &json!({ "id": created.meta.id, "name": "Copy" }),
         )
         .unwrap();
         assert_ne!(duplicated.meta.id, created.meta.id);
-        assert_eq!(list(dir.path(), &settings).unwrap().len(), 2);
+        assert_eq!(list(dir.path(), &settings, &HashSet::new()).unwrap().len(), 2);
 
         remove(
             dir.path(),
@@ -734,23 +737,25 @@ mod tests {
             &json!({ "id": created.meta.id, "confirm": true }),
         )
         .unwrap();
-        assert_eq!(list(dir.path(), &settings).unwrap().len(), 1);
+        assert_eq!(list(dir.path(), &settings, &HashSet::new()).unwrap().len(), 1);
     }
 
     #[test]
     fn hostile_input_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let settings = Settings::default();
-        assert!(create(dir.path(), &settings, &input("x", Some("../evil"))).is_err());
+        assert!(create(dir.path(), &settings, &HashSet::new(), &input("x", Some("../evil"))).is_err());
         assert!(create(
             dir.path(),
             &settings,
+            &HashSet::new(),
             &json!({ "name": "", "mcVersion": "1.21.1", "loader": { "type": "vanilla", "version": null }, "kind": "custom", "settings": {} })
         )
         .is_err());
         assert!(create(
             dir.path(),
             &settings,
+            &HashSet::new(),
             &json!({ "name": "x", "mcVersion": "1.21.1", "loader": { "type": "fabric", "version": null }, "kind": "custom", "settings": {} })
         )
         .is_err());
@@ -760,7 +765,7 @@ mod tests {
     fn worlds_lists_saves() {
         let dir = tempfile::tempdir().unwrap();
         let settings = Settings::default();
-        let created = create(dir.path(), &settings, &input("Pack", None)).unwrap();
+        let created = create(dir.path(), &settings, &HashSet::new(), &input("Pack", None)).unwrap();
         let saves = Path::new(&created.game_dir).join("saves");
         fs::create_dir_all(saves.join("My World")).unwrap();
         fs::create_dir_all(saves.join(".hidden")).unwrap();

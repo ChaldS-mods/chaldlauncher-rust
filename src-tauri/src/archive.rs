@@ -507,6 +507,7 @@ fn add_u64(out: &mut Value, key: &str, value: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     #[test]
     fn rejects_traversal_and_absolute_names() {
