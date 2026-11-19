@@ -68,8 +68,13 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build Tauri installer
-        run: npm run build:tauri
+      - name: Build Tauri installer (Windows)
+        if: matrix.platform == 'windows'
+        run: npm run build:tauri -- --bundles nsis
+
+      - name: Build Tauri installer (Linux)
+        if: matrix.platform == 'linux'
+        run: npm run build:tauri -- --bundles appimage
 
       - name: Prepare Windows artifacts
         if: matrix.platform == 'windows'

@@ -17,7 +17,7 @@ describe('replaceAppImage', () => {
     await fs.writeFile(src, 'new version', { mode: 0o644 });
     await replaceAppImage(src, target);
     expect(await fs.readFile(target, 'utf8')).toBe('new version');
-    expect((await fs.stat(target)).mode & 0o777).toBe(0o755);
+    expect((await fs.stat(target)).mode & 0o777).toBe(process.platform === 'win32' ? 0o666 : 0o755);
     expect(await fs.readdir(tmp)).toEqual(expect.arrayContaining(['ChaldLauncher.AppImage', 'dl']));
     expect((await fs.readdir(tmp)).filter((n) => n.includes('.new-'))).toEqual([]);
     expect(await fs.readFile(src, 'utf8')).toBe('new version'); // the download is not consumed
