@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Children, isValidElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyEvent, type ReactElement, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { InstanceView } from '../../shared/types';
 import { useI18n } from '../i18n';
 import { COVER_COLORS } from '../util';
@@ -124,4 +125,170 @@ export function Empty({ icon, title, text, action }: { icon: string; title: stri
 
 export function Skeleton({ rows = 3 }: { rows?: number }) {
   return <div className="skeletons">{Array.from({ length: rows }, (_, i) => <div key={i} className="skeleton" />)}</div>;
+}
+
+
+// ── Select: замена нативного <select> (нативный список в WebView выглядит чужеродно и глючит) ──
+function nodeText(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(nodeText).join('');
+  if (isValidElement(node)) return nodeText((node.props as { children?: ReactNode }).children);
+  return '';
+}
+
+interface SelectOption { value: string; label: string; disabled: boolean }
+
+function collectOptions(children: ReactNode, out: SelectOption[] = []): SelectOption[] {
+  Children.forEach(children, (child) => {
+    if (!isValidElement(child)) return;
+    const el = child as ReactElement<{ value?: string | number; disabled?: boolean; children?: ReactNode }>;
+    if (el.type === 'option') {
+      const label = nodeText(el.props.children);
+      out.push({ value: el.props.value !== undefined ? String(el.props.value) : label, label, disabled: !!el.props.disabled });
+    } else if (el.props.children) {
+      collectOptions(el.props.children, out);
+    }
+  });
+  return out;
+}
+
+export interface SelectProps {
+  value: string | number;
+  onChange: (e: { target: { value: string } }) => void;
+  children: ReactNode;
+  className?: string;
+  disabled?: boolean;
+  id?: string;
+  'aria-label'?: string;
+}
+
+export function Select({ value, onChange, children, className = '', disabled, id, 'aria-label': ariaLabel }: SelectProps) {
+  const options = collectOptions(children);
+  const current = String(value ?? '');
+  const selected = options.find((o) => o.value === current);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [pos, setPos] = useState<{ left: number; top: number; width: number; maxH: number; up: boolean } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const listId = useId();
+
+  const place = useCallback(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom - 12;
+    const above = r.top - 12;
+    const up = below < 180 && above > below;
+    setPos({ left: r.left, top: up ? r.top - 6 : r.bottom + 6, width: r.width, maxH: Math.max(120, Math.min(320, up ? above : below)), up });
+  }, []);
+
+  useLayoutEffect(() => { if (open) place(); }, [open, place]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || listRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onMove = (e: Event) => { if (!listRef.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('resize', onMove);
+    window.addEventListener('scroll', onMove, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('resize', onMove);
+      window.removeEventListener('scroll', onMove, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open) listRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [open, active]);
+
+  const openList = () => {
+    if (disabled) return;
+    const i = options.findIndex((o) => o.value === current);
+    setActive(i >= 0 ? i : Math.max(0, options.findIndex((o) => !o.disabled)));
+    setOpen(true);
+  };
+  const choose = (o: SelectOption) => {
+    if (o.disabled) return;
+    setOpen(false);
+    btnRef.current?.focus();
+    if (o.value !== current) onChange({ target: { value: o.value } });
+  };
+  const step = (dir: 1 | -1) => {
+    let i = active;
+    for (let n = 0; n < options.length; n++) {
+      i = (i + dir + options.length) % options.length;
+      if (!options[i]?.disabled) break;
+    }
+    setActive(i);
+  };
+  const onKey = (e: ReactKeyEvent<HTMLButtonElement>) => {
+    if (disabled) return;
+    if (!open) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); openList(); }
+      return;
+    }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); step(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); step(-1); }
+    else if (e.key === 'Home') { e.preventDefault(); setActive(0); }
+    else if (e.key === 'End') { e.preventDefault(); setActive(options.length - 1); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const o = options[active]; if (o) choose(o); }
+    else if (e.key === 'Tab') setOpen(false);
+  };
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        id={id}
+        type="button"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-label={ariaLabel}
+        disabled={disabled}
+        className={`input select ${open ? 'is-open' : ''} ${className}`}
+        onClick={() => (open ? setOpen(false) : openList())}
+        onKeyDown={onKey}
+      >
+        <span className="select__value">{selected?.label ?? ''}</span>
+        <span className="select__chev" aria-hidden="true" />
+      </button>
+      {open && pos && createPortal(
+        <ul
+          ref={listRef}
+          id={listId}
+          role="listbox"
+          className="select__list"
+          style={{ left: pos.left, top: pos.top, minWidth: pos.width, maxHeight: pos.maxH, transform: pos.up ? 'translateY(-100%)' : undefined }}
+        >
+          {options.map((o, i) => (
+            <li
+              key={`${o.value}-${i}`}
+              role="option"
+              aria-selected={o.value === current}
+              aria-disabled={o.disabled || undefined}
+              data-active={i === active}
+              className={`select__opt${o.value === current ? ' is-selected' : ''}${o.disabled ? ' is-disabled' : ''}`}
+              onMouseEnter={() => !o.disabled && setActive(i)}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => choose(o)}
+            >
+              <span>{o.label}</span>
+              {o.value === current && <Icon name="check" size={14} />}
+            </li>
+          ))}
+        </ul>,
+        document.body,
+      )}
+    </>
+  );
 }

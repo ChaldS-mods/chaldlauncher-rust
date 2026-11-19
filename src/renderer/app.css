@@ -1,5 +1,10 @@
 /* ---------- base ---------- */
 *, *::before, *::after { box-sizing: border-box; }
+/* selectable text in content (titlebar stays drag-only) */
+.main, .main * { user-select: text; -webkit-user-select: text; }
+.sidebar, .sidebar * { user-select: text; -webkit-user-select: text; }
+button, .icon-btn, .nav-item { user-select: none; -webkit-user-select: none; }
+
 html, body, #root { height: 100%; margin: 0; }
 body {
   background: var(--bg);
@@ -70,6 +75,8 @@ input, select, textarea { font: inherit; color: inherit; }
   display: grid; place-items: center; width: 34px; height: 34px;
   border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--surface-2); color: var(--cyan);
 }
+.profile__avatar--head { padding: 2px; overflow: hidden; }
+.profile__avatar img { display: block; width: 100%; height: 100%; image-rendering: pixelated; border-radius: 2px; }
 .profile__name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .icon-btn {
@@ -166,8 +173,24 @@ input, select, textarea { font: inherit; color: inherit; }
 .input::placeholder { color: var(--text-faint); }
 .input:hover { border-color: var(--border); }
 .input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(var(--cyan-rgb), 0.35); border-radius: var(--r-sm); }
-select.input { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--text-dim) 50%), linear-gradient(135deg, var(--text-dim) 50%, transparent 50%); background-position: calc(100% - 18px) 17px, calc(100% - 13px) 17px; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 32px; }
-select.input option { background: var(--surface); }
+.select { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); text-align: left; cursor: pointer; padding-right: var(--s-3); }
+.select:disabled { opacity: 0.5; cursor: not-allowed; }
+.select.is-open { border-color: var(--accent); box-shadow: var(--glow); }
+.select__value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select__chev { flex: none; width: 7px; height: 7px; border-right: 2px solid var(--cyan); border-bottom: 2px solid var(--cyan); transform: translateY(-2px) rotate(45deg); transition: transform var(--t-fast); }
+.select.is-open .select__chev { transform: translateY(2px) rotate(-135deg); }
+.select__list {
+  position: fixed; z-index: 10000; margin: 0; padding: var(--s-1); list-style: none; overflow-y: auto;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface)); border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  box-shadow: var(--shadow), var(--glow); animation: select-in 0.12s ease-out;
+}
+@keyframes select-in { from { opacity: 0; margin-top: -4px; } to { opacity: 1; margin-top: 0; } }
+.select__opt { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: 8px var(--s-3); border-radius: var(--r-sm); cursor: pointer; color: var(--text); user-select: none; -webkit-user-select: none; }
+.select__opt[data-active='true'] { background: rgba(var(--accent-rgb), 0.18); }
+.select__opt.is-selected { color: var(--cyan); }
+.select__opt.is-disabled { color: var(--text-faint); cursor: not-allowed; }
+.select__list::-webkit-scrollbar { width: 8px; }
+.select__list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 .input[aria-invalid='true'] { border-color: var(--danger); }
 .search { position: relative; }
 .search .icon { position: absolute; left: var(--s-3); top: 11px; color: var(--cyan); pointer-events: none; }
@@ -278,3 +301,27 @@ select.input option { background: var(--surface); }
 .custom-html { padding: var(--s-4); background: rgba(var(--surface-rgb), 0.7); border: 1px solid var(--border-soft); border-radius: var(--r-md); overflow-wrap: anywhere; }
 .custom-html img { max-width: 100%; }
 .code-area { width: 100%; min-height: 160px; resize: vertical; font: 13px/1.5 var(--font-mono); white-space: pre; tab-size: 2; }
+
+/* ---------- download details («Подробнее») ---------- */
+.statusbar .statusbar__more { height: 28px; padding: 0 var(--s-3); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); color: var(--cyan); white-space: nowrap; }
+.statusbar .statusbar__more:hover { border-color: var(--border-strong); box-shadow: var(--glow); }
+.dl { display: flex; flex-direction: column; gap: var(--s-5); min-width: 0; }
+.dl-total { display: flex; flex-direction: column; gap: var(--s-3); padding: var(--s-4); background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--r-md); }
+.dl-total__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); min-width: 0; }
+.dl-total__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-total__pct { color: var(--cyan); font-family: var(--font-head); font-size: 20px; }
+.dl-total .progress { height: 10px; }
+.dl-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--s-3); margin: 0; }
+.dl-stats dt { color: var(--text-faint); font-size: 14px; }
+.dl-stats dd { margin: 2px 0 0; color: var(--text); white-space: nowrap; }
+.dl-error { margin: 0; color: var(--danger); }
+.dl-list h3 { display: flex; align-items: center; gap: var(--s-2); margin: 0 0 var(--s-3); font-size: 17px; }
+.dl-list__count { margin-left: var(--s-1); padding: 0 var(--s-2); border-radius: 999px; background: var(--surface-3); color: var(--cyan); font-size: 14px; }
+.dl-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-3); max-height: 340px; overflow: auto; }
+.dl-file { display: flex; flex-direction: column; gap: 6px; padding: var(--s-3); background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--r-sm); }
+.dl-file__head { display: flex; justify-content: space-between; gap: var(--s-3); min-width: 0; }
+.dl-file__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-file__size { color: var(--text-dim); white-space: nowrap; font-size: 14px; }
+.dl-file .progress { height: 6px; }
+.dl-file__purpose { color: var(--text-faint); }
+.dl-empty { margin: 0; color: var(--text-dim); }

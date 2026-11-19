@@ -5,7 +5,7 @@ import { call, errMsg } from '../api';
 import { useI18n } from '../i18n';
 import { useStore } from '../store';
 import { COVER_COLORS, kindLabel } from '../util';
-import { Cover, Field, Modal } from './ui';
+import { Cover, Field, Modal, Select } from './ui';
 import { SettingsFields, draftFrom, parseDraft } from './SettingsFields';
 
 export function CoverColors({ value, onChange }: { value: number; onChange: (n: number) => void }) {
@@ -98,11 +98,11 @@ export function EditInstance({ inst, onClose }: { inst: InstanceView; onClose: (
             <input className="input" maxLength={48} value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label={t('wizard.type')}>
-            <select className="input" value={kind} onChange={(e) => setKind(e.target.value as InstanceKind)}>
+            <Select className="input" value={kind} onChange={(e) => setKind(e.target.value as InstanceKind)}>
               {kinds.map((k) => (
                 <option key={k} value={k}>{kindLabel(k, t)}</option>
               ))}
-            </select>
+            </Select>
           </Field>
           <div className="form-grid__wide">
             <Field label={t('instances.description')}>

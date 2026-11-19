@@ -1,0 +1,245 @@
+# Публикует релиз на GitHub, из которого лаунчер обновляет сам себя.
+#
+# Как выпустить версию:
+#   1. поднять "version" в package.json (например 1.1.0) и закоммитить;
+#   2. git tag v1.1.0 && git push origin v1.1.0
+#
+# Файлы релиза (канонические имена важны: по ним лаунчер выбирает, что скачивать):
+#   ChaldLauncher-Setup.exe                     Windows, автообновление/установка
+#   ChaldLauncher-<версия>-linux-x64.AppImage   Linux, автообновление (заменяет сам себя)
+#
+# Сборка переведена на Tauri + размерные оптимизации: артефакты проверяются на лимит 20 МБ.
+# Дополнительно собираются варианты под разные версии ОС/раннеров с суффиксом метки сборки.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег существующего релиза-черновика или нового релиза (например v1.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: Тег должен совпадать с версией в package.json
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "::error::Тег $TAG не совпадает с версией package.json ($VERSION). Лаунчер сравнивает именно эти два числа: при расхождении обновление предлагалось бы бесконечно."
+            exit 1
+          fi
+
+  build:
+    name: build (${{ matrix.label }})
+    needs: check-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Каноническая Windows-сборка (имя файла для автообновления/установки)
+          - os: windows-2022
+            platform: windows
+            label: windows-2022-x64
+            canonical: true
+          # Каноническая Linux-сборка на более старой Ubuntu для лучшей совместимости (glibc)
+          - os: ubuntu-22.04
+            platform: linux
+            label: ubuntu-22.04-x64
+            canonical: true
+          # Дополнительная Linux-сборка под более новую версию ОС
+          - os: ubuntu-24.04
+            platform: linux
+            label: ubuntu-24.04-x64
+            canonical: false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            xdg-utils \
+            file
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build Tauri installer
+        run: npm run build:tauri
+
+      - name: Prepare Windows artifacts
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          $exe = Get-ChildItem -Path src-tauri/target/release/bundle/nsis -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { throw "NSIS installer (.exe) not found" }
+          if ('${{ matrix.canonical }}' -eq 'true') {
+            Copy-Item $exe.FullName out/ChaldLauncher-Setup.exe
+          } else {
+            Copy-Item $exe.FullName "out/ChaldLauncher-Setup-${{ matrix.label }}.exe"
+          }
+          Get-ChildItem out | Format-Table Name,Length
+
+      - name: Prepare Linux artifacts
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          VERSION=$(node -p "require('./package.json').version")
+          shopt -s nullglob
+          files=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "AppImage not found"
+            exit 1
+          fi
+          src="${files[0]}"
+          if [ "${{ matrix.canonical }}" = "true" ]; then
+            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64.AppImage"
+          else
+            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64-${{ matrix.label }}.AppImage"
+          fi
+          ls -lh out
+
+      - name: Check installer size (<= 20 MB)
+        shell: bash
+        run: |
+          set -euo pipefail
+          limit=$((20 * 1024 * 1024))
+          fail=0
+          for f in out/*; do
+            [ -f "$f" ] || continue
+            size=$(wc -c < "$f" | tr -d ' ')
+            mb=$(awk "BEGIN {printf \"%.2f\", $size/1024/1024}")
+            echo "$f: ${size} bytes (${mb} MB)"
+            if [ "$size" -gt "$limit" ]; then
+              echo "::error file=$f::Installer exceeds 20 MB limit (${mb} MB)"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.label }}
+          if-no-files-found: error
+          path: out/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Создать релиз (черновик с файлами, затем публикация)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ls -la assets
+          NOTES=notes.md
+          [ -f "$NOTES" ] || printf 'Release %s\n' "${TAG#v}" > "$NOTES"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --clobber
+          else
+            gh release create "$TAG" assets/* --draft --verify-tag --title "ChaldLauncher ${TAG#v}" --notes-file "$NOTES"
+          fi
+          gh release edit "$TAG" --draft=false --latest
+
+  site:
+    needs: publish
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      # Файлы релиза -> VirusTotal. Нужен секрет VT_API_KEY (Settings -> Secrets -> Actions).
+      # Без секрета или при сбое VirusTotal шаг не роняет сборку: сайт просто обновится без отчётов.
+      - name: Scan release files on VirusTotal
+        continue-on-error: true
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: |
+          mkdir -p vt-files
+          gh release download "$TAG" --repo "${{ github.repository }}" --dir vt-files \
+            --pattern '*.exe' --pattern '*.zip' --pattern '*.AppImage' --pattern '*.tar.gz' || true
+          if ls vt-files/* >/dev/null 2>&1; then
+            python3 .github/scripts/virustotal.py vt.json vt-files/*
+          else
+            echo '{}' > vt.json
+          fi
+
+      - name: Update site data
+        run: |
+          gh release view "$TAG" --repo "${{ github.repository }}" --json tagName,publishedAt,url,assets,body > release.json
+          gh api "repos/${{ github.repository }}/releases?per_page=100" > all.json
+          [ -f vt.json ] || echo '{}' > vt.json
+          python3 .github/scripts/update-site.py release.json docs/index.html all.json vt.json
+          rm -rf release.json all.json vt.json vt-files
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html
+          if git diff --cached --quiet; then
+            echo "Без изменений"
+          else
+            git commit -m "site: $TAG"
+            git pull --rebase
+            git push
+          fi

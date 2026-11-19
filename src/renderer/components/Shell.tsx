@@ -4,12 +4,14 @@ import { useI18n } from '../i18n';
 import { activeOp, useStore, type Page } from '../store';
 import { stateText } from '../util';
 import { DiscordButton } from './Discord';
+import { DownloadDetails } from './DownloadDetails';
 import { Icon } from './Icon';
 import { LogoMark } from './Logo';
 import { ProgressBar } from './ui';
 
 export function TitleBar() {
   const auth = useStore((s) => s.auth);
+  const headUrl = useStore((s) => s.headUrl);
   const go = useStore((s) => s.go);
   const { t } = useI18n();
   const win = (a: 'minimize' | 'maximize' | 'close') => void call('window:control', a);
@@ -28,7 +30,9 @@ export function TitleBar() {
           onClick={() => go('settings')}
           title={auth?.mode === 'offline' ? t('auth.offlineHint') : t('auth.msHint')}
         >
-          <span className="profile__avatar"><Icon name="user" size={18} /></span>
+          <span className={`profile__avatar${headUrl ? ' profile__avatar--head' : ''}`}>
+            {headUrl ? <img src={headUrl} alt="" draggable={false} /> : <Icon name="user" size={18} />}
+          </span>
           <span className="profile__name">
             {auth?.loggedIn ? auth.name : auth?.mode === 'offline' ? t('auth.enterName') : t('auth.signIn')}
           </span>
@@ -60,6 +64,7 @@ export const NAV_PAGES: { page: Page; labelKey: string; icon: string }[] = [
   { page: 'mods', labelKey: 'nav.mods', icon: 'puzzle' },
   { page: 'resourcepacks', labelKey: 'nav.resourcepacks', icon: 'image' },
   { page: 'wardrobe', labelKey: 'nav.wardrobe', icon: 'shirt' },
+  { page: 'friends', labelKey: 'nav.friends', icon: 'user' },
   { page: 'modrinth', labelKey: 'nav.modrinth', icon: 'download' },
   { page: 'console', labelKey: 'nav.console', icon: 'terminal' },
   { page: 'mojang', labelKey: 'nav.mojang', icon: 'play' },
@@ -127,10 +132,15 @@ export function StatusBar() {
   const sel = useStore((s) => s.selected());
   const ops = useStore((s) => s.ops);
   const go = useStore((s) => s.go);
+  const opFiles = useStore((s) => s.opFiles);
+  const openDetails = useStore((s) => s.openDetails);
   const { t } = useI18n();
   const op = activeOp(ops);
+  // the button exists only while there is per-file data to show (not for launches or metadata steps)
+  const hasDetails = !!op && !!opFiles[op.opId];
   const failed = Object.values(ops).find((o) => o.status === 'error');
   return (
+    <>
     <footer className="statusbar">
       <button className="statusbar__ver" onClick={() => go('instances')}>
         <span className="statusbar__chip"><Icon name="cube" size={16} /></span>
@@ -145,6 +155,11 @@ export function StatusBar() {
             <span className="statusbar__op" title={op.label}>{op.label}</span>
             <ProgressBar fraction={op.fraction} />
             {op.fraction !== null && <span className="statusbar__pct">{Math.round(op.fraction * 100)}%</span>}
+            {hasDetails && (
+              <button className="statusbar__more" onClick={() => openDetails(op.opId)}>
+                {t('download.more')}
+              </button>
+            )}
           </>
         ) : failed ? (
           <span className="statusbar__op is-error" title={failed.message ?? ''}>{failed.label}</span>
@@ -154,6 +169,8 @@ export function StatusBar() {
         <Icon name="shield" size={16} /> {t('console.hosts')}
       </button>
     </footer>
+    <DownloadDetails />
+    </>
   );
 }
 

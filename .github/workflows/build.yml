@@ -2,127 +2,130 @@ name: Build
 
 on:
   push:
-    tags:
-      - 'v*'
-  release:
-    types: [published]
+    branches:
+      - '**'
+  pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  build:
+    name: build (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: windows
+            label: windows-2022-x64
+            canonical: true
+          - os: ubuntu-22.04
+            platform: linux
+            label: ubuntu-22.04-x64
+            canonical: true
+          - os: ubuntu-24.04
+            platform: linux
+            label: ubuntu-24.04-x64
+            canonical: false
+
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            installer/package-lock.json
-      - run: npm ci
-      - run: npm --prefix installer ci
-      - run: npm test
-      - run: npm --prefix installer test
-      # лаунчер (release/win-unpacked) -> payload -> installer/release/ChaldLauncher-Setup.exe
-      - run: npm run installer
-      - name: Zip launcher
-        shell: pwsh
-        run: Compress-Archive -Path release/win-unpacked/* -DestinationPath ChaldLauncher-win-x64.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: |
-            installer/release/ChaldLauncher-Setup.exe
-            ChaldLauncher-win-x64.zip
-      - name: Upload to release
-        if: github.event_name == 'release'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" installer/release/ChaldLauncher-Setup.exe ChaldLauncher-win-x64.zip --clobber
+          cache-dependency-path: package-lock.json
 
-  linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run dist:linux
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux
-          path: |
-            release/*.AppImage
-            release/*.tar.gz
-      - name: Upload to release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" release/*.AppImage release/*.tar.gz --clobber
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
-  # После загрузки файлов в релиз: вписать версию и ссылки в docs/index.html и закоммитить в основную ветку.
-  site:
-    needs: [windows, linux]
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ github.token }}
-      TAG: ${{ github.event.release.tag_name }}
-    steps:
-      - uses: actions/checkout@v4
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
         with:
-          ref: ${{ github.event.repository.default_branch }}
-      # Файлы релиза -> VirusTotal. Нужен секрет VT_API_KEY (Settings -> Secrets -> Actions).
-      # Без секрета или при сбое VirusTotal шаг не роняет сборку: сайт просто обновится без отчётов.
-      - name: Scan release files on VirusTotal
-        continue-on-error: true
-        env:
-          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+          workspaces: src-tauri -> target
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
         run: |
-          mkdir vt-files
-          gh release download "$TAG" --repo "${{ github.repository }}" --dir vt-files \
-            --pattern '*.exe' --pattern '*.zip' --pattern '*.AppImage' --pattern '*.tar.gz'
-          python3 .github/scripts/virustotal.py vt.json vt-files/*
-      - name: Update site data
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            xdg-utils \
+            file
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build Tauri installer
+        run: npm run build:tauri
+
+      - name: Prepare Windows artifacts
+        if: matrix.platform == 'windows'
+        shell: pwsh
         run: |
-          gh release view "$TAG" --repo "${{ github.repository }}" --json tagName,publishedAt,url,assets,body > release.json
-          gh api "repos/${{ github.repository }}/releases?per_page=100" > all.json
-          python3 .github/scripts/update-site.py release.json docs/index.html all.json vt.json
-          rm -rf release.json all.json vt.json vt-files
-      - name: Commit and push
+          New-Item -ItemType Directory -Force out | Out-Null
+          $exe = Get-ChildItem -Path src-tauri/target/release/bundle/nsis -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { throw "NSIS installer (.exe) not found" }
+          if ('${{ matrix.canonical }}' -eq 'true') {
+            Copy-Item $exe.FullName out/ChaldLauncher-Setup.exe
+          } else {
+            Copy-Item $exe.FullName "out/ChaldLauncher-Setup-${{ matrix.label }}.exe"
+          }
+          Get-ChildItem out | Format-Table Name,Length
+
+      - name: Prepare Linux artifacts
+        if: matrix.platform == 'linux'
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/index.html
-          if git diff --cached --quiet; then
-            echo "Без изменений"
-          else
-            git commit -m "site: $TAG"
-            git pull --rebase
-            git push
+          set -euo pipefail
+          mkdir -p out
+          VERSION=$(node -p "require('./package.json').version")
+          shopt -s nullglob
+          files=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "AppImage not found"
+            exit 1
           fi
+          src="${files[0]}"
+          if [ "${{ matrix.canonical }}" = "true" ]; then
+            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64.AppImage"
+          else
+            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64-${{ matrix.label }}.AppImage"
+          fi
+          ls -lh out
 
-      - name: Release and Upload Assets
-        uses: softprops/action-gh-release@v2
+      - name: Check installer size (<= 20 MB)
+        shell: bash
+        run: |
+          set -euo pipefail
+          limit=$((20 * 1024 * 1024))
+          fail=0
+          for f in out/*; do
+            [ -f "$f" ] || continue
+            size=$(wc -c < "$f" | tr -d ' ')
+            mb=$(awk "BEGIN {printf \"%.2f\", $size/1024/1024}")
+            echo "$f: ${size} bytes (${mb} MB)"
+            if [ "$size" -gt "$limit" ]; then
+              echo "::error file=$f::Installer exceeds 20 MB limit (${mb} MB)"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/*.AppImage
-            dist/*.tar.gz
-            installer/release/ChaldLauncher-Setup.exe
-            ChaldLauncher-win-x64.zip
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: chaldlauncher-${{ matrix.label }}
+          if-no-files-found: error
+          path: out/*

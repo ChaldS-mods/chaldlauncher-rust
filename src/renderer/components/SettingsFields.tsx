@@ -4,8 +4,9 @@ import { instanceSettingsSchema } from '../../shared/schemas';
 import { useI18n } from '../i18n';
 import { useStore } from '../store';
 import { memoryText, numOrNull } from '../util';
+import { JvmPresets } from './JvmPresets';
 import { MemorySliders } from './MemorySliders';
-import { Field } from './ui';
+import { Field, Select } from './ui';
 
 export interface SettingsDraft {
   javaPath: string;
@@ -135,7 +136,7 @@ export function SettingsFields({
         <input className="input" inputMode="numeric" value={draft.height} onChange={(e) => set('height', e.target.value)} placeholder="720" />
       </Field>
       <Field label={t('instSettings.fullscreen')}>
-        <select
+        <Select
           className="input"
           value={draft.fullscreen}
           onChange={(e) => set('fullscreen', e.target.value as SettingsDraft['fullscreen'])}
@@ -143,7 +144,7 @@ export function SettingsFields({
           <option value="default">{t('instSettings.fsDefault')}</option>
           <option value="yes">{t('instSettings.fsOn')}</option>
           <option value="no">{t('instSettings.fsOff')}</option>
-        </select>
+        </Select>
       </Field>
       <Field label={t('instSettings.java')} hint={t('instSettings.javaHint')}>
         <input
@@ -155,7 +156,8 @@ export function SettingsFields({
       </Field>
       <div className="form-grid__wide">
         <Field label={t('instSettings.jvm')} hint={t('instSettings.jvmHint')}>
-          <input className="input" value={draft.jvmArgs} onChange={(e) => set('jvmArgs', e.target.value)} placeholder="-XX:+UseG1GC" />
+          <JvmPresets value={draft.jvmArgs} onChange={(args) => set('jvmArgs', args)} />
+          <input className="input" style={{ marginTop: 8 }} value={draft.jvmArgs} onChange={(e) => set('jvmArgs', e.target.value)} placeholder="-XX:+UseG1GC" />
         </Field>
       </div>
     </div>

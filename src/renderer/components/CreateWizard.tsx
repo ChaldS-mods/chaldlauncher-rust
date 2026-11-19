@@ -10,7 +10,7 @@ import { LOADER_LABEL, kindLabel } from '../util';
 import { CoverColors } from './EditInstance';
 import { Icon } from './Icon';
 import { EMPTY_DRAFT, SettingsFields, parseDraft } from './SettingsFields';
-import { Field, Modal } from './ui';
+import { Field, Modal, Select } from './ui';
 
 export function CreateWizard() {
   const preset = useStore((s) => s.wizard.mcVersion);
@@ -182,7 +182,7 @@ export function CreateWizard() {
               <input className="input" autoFocus maxLength={48} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('wizard.namePlaceholder')} />
             </Field>
             <Field label={t('wizard.type')}>
-              <select
+              <Select
                 className="input"
                 value={kind}
                 onChange={(e) => {
@@ -195,7 +195,7 @@ export function CreateWizard() {
                     {kindLabel(k, t)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <div className="form-grid__wide">
               <Field label={t('instances.description')} hint={t('instances.optional')}>
@@ -203,14 +203,14 @@ export function CreateWizard() {
               </Field>
             </div>
             <Field label={t('instances.mcVersion')} error={versionsError} hint={loading ? t('common.loading') : undefined}>
-              <select className="input" value={mcVersion} onChange={(e) => setMcVersion(e.target.value)} disabled={loading && !versions.length}>
+              <Select className="input" value={mcVersion} onChange={(e) => setMcVersion(e.target.value)} disabled={loading && !versions.length}>
                 {shown.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.id}
                     {v.type !== 'release' ? ` (${v.type === 'snapshot' ? t('versions.snapshot') : 'old'})` : ''}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <div className="field">
               <span className="field__label">{t('versions.snapshots')}</span>
@@ -251,7 +251,7 @@ export function CreateWizard() {
           </div>
           {loader !== 'vanilla' && (
             <Field label={LOADER_LABEL[loader]} error={loaders.error} hint={loaders.loading ? t('common.loading') : undefined}>
-              <select
+              <Select
                 className="input"
                 value={loaderVersion}
                 onChange={(e) => setLoaderVersion(e.target.value)}
@@ -264,7 +264,7 @@ export function CreateWizard() {
                     {l.stable ? '' : ' β'}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
           )}
         </div>

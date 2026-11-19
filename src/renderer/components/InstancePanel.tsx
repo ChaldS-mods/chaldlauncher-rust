@@ -2,7 +2,7 @@ import type { InstanceView } from '../../shared/types';
 import { recommendMemory } from '../../shared/memory';
 import { useI18n } from '../i18n';
 import { activeOp, useStore } from '../store';
-import { formatDate, kindLabel, loaderText, memoryText } from '../util';
+import { formatDate, formatPlayTime, kindLabel, loaderText, memoryText } from '../util';
 import { Icon } from './Icon';
 import { Cover, Menu, ProgressBar } from './ui';
 import { instanceMenuItems, type InstanceDialog } from './InstanceMenu';
@@ -72,8 +72,8 @@ function MainAction({ inst }: { inst: InstanceView }) {
         <p className="form-error" role="alert">
           <Icon name="alert" size={16} /> {inst.stateReason ?? t('state.broken')}
         </p>
-        <button className="btn btn--primary btn--lg" onClick={() => void install(inst.id)}>
-          <Icon name="wrench" size={20} /> {t('action.install')}
+        <button className="btn btn--primary btn--lg" onClick={() => useStore.getState().openRepair(inst.id)}>
+          <Icon name="wrench" size={20} /> {t('instances.repair')}
         </button>
       </div>
     );
@@ -128,6 +128,7 @@ export function InstancePanel({ inst, openDialog }: { inst: InstanceView; openDi
         <Row icon="folder" label={t('settings.instancesDir')} value={inst.path} />
         <Row icon="refresh" label={t('instances.created')} value={formatDate(inst.createdAt)} />
         <Row icon="play" label={t('instances.lastPlayed')} value={formatDate(inst.lastPlayedAt)} />
+        <Row icon="clock" label={t('instances.playTime')} value={formatPlayTime(inst.playTimeSec, t)} />
       </section>
 
       <section className="pcard">
