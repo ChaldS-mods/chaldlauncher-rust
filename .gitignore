@@ -2,3 +2,7 @@ node_modules/
 
 src-tauri/target/
 src-tauri/gen/
+
+installer-rs/target/
+installer-rs/payload/payload.chpk
+installer-rs/payload-src/

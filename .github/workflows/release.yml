@@ -85,7 +85,9 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: |
+            src-tauri -> target
+            installer-rs -> target
 
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
@@ -124,27 +126,36 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build Tauri installer (Windows)
+      - name: Build Tauri app (Windows)
         if: matrix.platform == 'windows'
-        run: npm run build:tauri -- --bundles nsis
+        run: npm run build:tauri -- --no-bundle
+
+      - name: Build custom Rust installer (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ver = node -p "require('./package.json').version"
+          $stage = Join-Path $env:RUNNER_TEMP "chald-payload-src"
+          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          $exe = Join-Path "src-tauri/target/release" "chaldlauncher.exe"
+          if (-not (Test-Path $exe)) {
+            $exe = (Get-ChildItem -Path src-tauri/target/release -Filter *.exe | Where-Object { $_.Name -ieq 'ChaldLauncher.exe' -or $_.Name -ieq 'chaldlauncher.exe' } | Select-Object -First 1).FullName
+          }
+          if (-not $exe -or -not (Test-Path $exe)) { throw "Launcher executable not found in src-tauri/target/release" }
+          Copy-Item $exe (Join-Path $stage "ChaldLauncher.exe")
+          cargo run --release --manifest-path installer-rs/Cargo.toml --bin chald-pack -- $stage installer-rs/payload/payload.chpk --version $ver --product ChaldLauncher --exe ChaldLauncher.exe --publisher "Chald Studio" --app-id studio.chald.launcher
+          cargo build --release --manifest-path installer-rs/Cargo.toml --bin chald-installer
+          New-Item -ItemType Directory -Force out | Out-Null
+          $outExe = "out/ChaldLauncher-Setup.exe"
+          if ('${{ matrix.canonical }}' -ne 'true') { $outExe = "out/ChaldLauncher-Setup-${{ matrix.label }}.exe" }
+          Copy-Item installer-rs/target/release/chald-installer.exe $outExe
+          Get-ChildItem out | Format-Table Name,Length
 
       - name: Build Tauri installer (Linux)
         if: matrix.platform == 'linux'
         run: npm run build:tauri -- --bundles appimage
-
-      - name: Prepare Windows artifacts
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force out | Out-Null
-          $exe = Get-ChildItem -Path src-tauri/target/release/bundle/nsis -Filter *.exe | Select-Object -First 1
-          if (-not $exe) { throw "NSIS installer (.exe) not found" }
-          if ('${{ matrix.canonical }}' -eq 'true') {
-            Copy-Item $exe.FullName out/ChaldLauncher-Setup.exe
-          } else {
-            Copy-Item $exe.FullName "out/ChaldLauncher-Setup-${{ matrix.label }}.exe"
-          }
-          Get-ChildItem out | Format-Table Name,Length
 
       - name: Prepare Linux artifacts
         if: matrix.platform == 'linux'

@@ -79,6 +79,7 @@ pub fn find_existing(meta: &PayloadMeta) -> Option<ExistingInstall> {
     }
 }
 
+#[cfg(windows)]
 fn psq(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }

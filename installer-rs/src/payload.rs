@@ -103,7 +103,7 @@ pub fn validate_header(raw: &Value, data_bytes: u64) -> Result<PayloadHeader, St
         Some(meta) => meta,
         None => return bad("meta"),
     };
-    let mut field = |key: &str| -> Result<String, String> {
+    let field = |key: &str| -> Result<String, String> {
         match meta_raw.get(key).and_then(Value::as_str) {
             Some(value) if !value.is_empty() && value.len() <= 128 => Ok(value.to_string()),
             _ => bad(&format!("meta.{key}")),

@@ -20,6 +20,9 @@ path = "src/bin/pack.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+flate2 = "1"
+serde_json = "1"
+sha2 = "0.10"
 
 [dependencies]
 tauri = { version = "2", features = [] }
