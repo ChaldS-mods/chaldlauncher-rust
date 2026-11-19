@@ -6,7 +6,7 @@
 #
 # Файлы релиза (канонические имена важны: по ним лаунчер выбирает, что скачивать):
 #   ChaldLauncher-Setup.exe                     Windows, автообновление/установка
-#   ChaldLauncher-<версия>-linux-x64.AppImage   Linux, автообновление (заменяет сам себя)
+#   ChaldLauncher-<версия>-linux-x64.deb        Linux, установщик (.deb)
 #
 # Сборка переведена на Tauri + размерные оптимизации: артефакты проверяются на лимит 20 МБ.
 # Дополнительно собираются варианты под разные версии ОС/раннеров с суффиксом метки сборки.
@@ -130,7 +130,7 @@ jobs:
 
       - name: Build Tauri installer (Linux)
         if: matrix.platform == 'linux'
-        run: npm run build:tauri -- --bundles appimage
+        run: npm run build:tauri -- --bundles deb
 
       - name: Prepare Windows artifacts
         if: matrix.platform == 'windows'
@@ -154,16 +154,16 @@ jobs:
           mkdir -p out
           VERSION=$(node -p "require('./package.json').version")
           shopt -s nullglob
-          files=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          files=(src-tauri/target/release/bundle/deb/*.deb)
           if [ ${#files[@]} -eq 0 ]; then
-            echo "AppImage not found"
+            echo "Deb package not found"
             exit 1
           fi
           src="${files[0]}"
           if [ "${{ matrix.canonical }}" = "true" ]; then
-            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64.AppImage"
+            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64.deb"
           else
-            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64-${{ matrix.label }}.AppImage"
+            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64-${{ matrix.label }}.deb"
           fi
           ls -lh out
 

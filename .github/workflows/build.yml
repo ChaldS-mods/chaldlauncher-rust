@@ -91,7 +91,7 @@ jobs:
 
       - name: Build Tauri installer (Linux)
         if: matrix.platform == 'linux'
-        run: npm run build:tauri -- --bundles appimage
+        run: npm run build:tauri -- --bundles deb
 
       - name: Prepare Windows artifacts
         if: matrix.platform == 'windows'
@@ -115,16 +115,16 @@ jobs:
           mkdir -p out
           VERSION=$(node -p "require('./package.json').version")
           shopt -s nullglob
-          files=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          files=(src-tauri/target/release/bundle/deb/*.deb)
           if [ ${#files[@]} -eq 0 ]; then
-            echo "AppImage not found"
+            echo "Deb package not found"
             exit 1
           fi
           src="${files[0]}"
           if [ "${{ matrix.canonical }}" = "true" ]; then
-            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64.AppImage"
+            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64.deb"
           else
-            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64-${{ matrix.label }}.AppImage"
+            cp "$src" "out/ChaldLauncher-${VERSION}-linux-x64-${{ matrix.label }}.deb"
           fi
           ls -lh out
 
