@@ -6,7 +6,7 @@ use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::errors::{fail, ok, AppError, AppResult};
-use crate::{archive, chaldpack, content, curseforge, dns, friends, game, installer, launcher_import, modrinth, mojang, net, update, versions, versionchange};
+use crate::{ai, archive, chaldpack, content, curseforge, dns, friends, game, installer, launcher_import, modrinth, mojang, net, update, versions, versionchange};
 use crate::instances;
 use crate::java;
 use crate::mem;
@@ -586,6 +586,12 @@ async fn dispatch(app: &tauri::AppHandle, state: &AppState, channel: &str, arg: 
                 "file": file,
             }))
         }
+
+        // Chaldi goes through the authenticated friends server only: no local API key, no other account.
+        "ai:chat" => ai::chat(app, state, &arg).await,
+        "ai:status" => ai::status(state).await,
+        "ai:undo" => ai::undo_last(app, state).await,
+        "ai:undoLog" => Ok(ai::undo_log(state)),
 
         c if c.starts_with("friends:") => {
             let settings = state.settings.get()?;

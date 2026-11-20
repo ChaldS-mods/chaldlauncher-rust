@@ -65,6 +65,7 @@ export const NAV_PAGES: { page: Page; labelKey: string; icon: string }[] = [
   { page: 'resourcepacks', labelKey: 'nav.resourcepacks', icon: 'image' },
   { page: 'wardrobe', labelKey: 'nav.wardrobe', icon: 'shirt' },
   { page: 'friends', labelKey: 'nav.friends', icon: 'user' },
+  { page: 'ai', labelKey: 'nav.ai', icon: 'send' },
   { page: 'modrinth', labelKey: 'nav.modrinth', icon: 'download' },
   { page: 'console', labelKey: 'nav.console', icon: 'terminal' },
   { page: 'mojang', labelKey: 'nav.mojang', icon: 'play' },

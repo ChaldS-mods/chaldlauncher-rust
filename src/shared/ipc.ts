@@ -9,6 +9,7 @@ import type { MojangGameId, MojangStatus, BedrockServer } from './mojang';
 import type { SkinVariant } from './skin';
 import type { PresencePage } from './presence';
 import type { ChangeVersionInput, CreateInstanceInput, UpdateInstanceInput } from './schemas';
+import type { AiChatRequest, AiChatResponse, AiLimit, AiProgressEvent } from './ai';
 
 type Ch<Req, Res> = { req: Req; res: Res };
 
@@ -130,6 +131,12 @@ export interface IpcContract {
   'friends:reject': Ch<{ requestId: number }, unknown>;
   'friends:remove': Ch<{ userId: number }, unknown>;
   'friends:hasSession': Ch<void, boolean>;
+  /** Chaldi: the launcher only executes tools; the signed-in friends server owns the model and quota. */
+  'ai:chat': Ch<AiChatRequest, AiChatResponse>;
+  'ai:status': Ch<void, AiLimit>;
+  /** Chaldi undo: snapshots of everything the agent changed, newest first. */
+  'ai:undo': Ch<void, { ok: boolean; undone?: string; detail?: string | null; note: string }>;
+  'ai:undoLog': Ch<void, { ok: boolean; entries: { id: string; label: string; at: number; kind: string }[]; note: string }>;
   /** Upload PNG head (data URL) for licensed skins — stored on the friends server */
   'friends:uploadAvatar': Ch<{ dataUrl: string }, boolean>;
   /** Resolve avatar: server PNG as data URL when hasAvatar, else null */
@@ -203,6 +210,8 @@ export interface IpcEvents {
   'auth:changed': AuthState;
   /** Progressive cape preview: emitted as each official cape texture finishes downloading. */
   'wardrobe:capePreview': { id: string; dataUrl: string };
+  /** Live Chaldi agent step: thinking / tool start / tool result / text. */
+  'ai:progress': AiProgressEvent;
 }
 
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };

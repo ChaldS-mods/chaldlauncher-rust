@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -154,6 +154,17 @@ struct HashInfo {
     algo: i32,
 }
 
+/// CurseForge file relation: 3 = RequiredDependency, 4 = OptionalDependency.
+#[derive(Debug, Deserialize, Clone)]
+struct CfFileDependency {
+    #[serde(default, rename = "modId")]
+    mod_id: i64,
+    #[serde(default, rename = "relationType")]
+    relation_type: i32,
+    #[serde(default, rename = "isOptional")]
+    is_optional: bool,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub(crate) struct FileItem {
     id: i64,
@@ -177,6 +188,8 @@ pub(crate) struct FileItem {
     hashes: Vec<HashInfo>,
     #[serde(default, rename = "isAvailable")]
     is_available: Option<bool>,
+    #[serde(default)]
+    dependencies: Vec<CfFileDependency>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -227,7 +240,27 @@ fn file_to_info(file: &FileItem) -> Value {
         "gameVersions": file.game_versions,
         "downloadUrl": file.download_url,
         "sha1": sha1,
+        "dependencies": file.dependencies.iter().map(|dep| json!({
+            "modId": dep.mod_id,
+            "relationType": dep.relation_type,
+            "required": dep.relation_type == 3 && !dep.is_optional,
+        })).collect::<Vec<_>>(),
+        "requiredDependencies": required_dependency_ids(file),
     })
+}
+
+/// CurseForge relationType 3 means RequiredDependency. Optional flags still win.
+fn required_dependency_ids(file: &FileItem) -> Vec<i64> {
+    let mut out = Vec::new();
+    for dep in &file.dependencies {
+        if dep.relation_type != 3 || dep.is_optional || dep.mod_id <= 0 {
+            continue;
+        }
+        if !out.contains(&dep.mod_id) {
+            out.push(dep.mod_id);
+        }
+    }
+    out
 }
 
 pub async fn search(input: &Value) -> AppResult<Value> {
@@ -455,6 +488,29 @@ pub async fn installed(data: &Path, settings: &Settings, id: &str, kind: &str) -
     Ok(list_installed(&game_dir, kind))
 }
 
+/// `(projectId, installed file name, fileId)` for the dependency audit, same shape as Modrinth.
+pub fn installed_info(game_dir: &Path) -> Vec<(i64, String, i64)> {
+    let index = read_cf_installed(game_dir);
+    let mut out: Vec<(i64, String, i64)> = index
+        .projects
+        .into_iter()
+        .filter_map(|(project_id, entry)| {
+            project_id.parse::<i64>().ok().map(|id| (id, entry.file, entry.file_id))
+        })
+        .collect();
+    out.sort_by_key(|item| item.0);
+    out
+}
+
+/// Required CurseForge dependency ids declared by a concrete file.
+pub async fn required_dependencies(mod_id: i64, file_id: i64) -> AppResult<Vec<i64>> {
+    if file_id <= 0 {
+        return Ok(Vec::new());
+    }
+    let file = get_file_info(mod_id, file_id).await?;
+    Ok(required_dependency_ids(&file))
+}
+
 /// Best-effort repair: re-download tracked CurseForge content files that are missing.
 pub async fn repair_tracked(
     data: &Path,
@@ -670,6 +726,103 @@ pub async fn install_file(
             Err(error)
         }
     }
+}
+
+/// Install a CurseForge mod together with every required dependency declared by its files.
+/// BFS with a visited set and depth cap; optional/embedded relations are ignored.
+pub async fn install_with_dependencies(
+    data: &Path,
+    settings: &Settings,
+    app: &AppHandle,
+    instance_id: &str,
+    mod_id: i64,
+    kind: &str,
+    file_id: Option<i64>,
+) -> AppResult<Value> {
+    const MAX_DEP_DEPTH: usize = 6;
+    const MAX_QUEUE: usize = 80;
+
+    let root_file = install_file(data, settings, app, instance_id, mod_id, kind, file_id, None).await?;
+    let game_dir = instances::game_dir_of(data, settings, instance_id)?;
+    let mut installed: Vec<Value> = vec![json!({ "modId": mod_id, "file": root_file })];
+    let mut already_installed: Vec<i64> = Vec::new();
+    let mut failed: Vec<Value> = Vec::new();
+    let mut visited: HashSet<i64> = HashSet::new();
+    visited.insert(mod_id);
+
+    let mut queue: Vec<(i64, i64, usize)> = Vec::new(); // (dep id, parent id, depth)
+    let root_file_id = installed_info(&game_dir)
+        .into_iter()
+        .find(|(id, _, _)| *id == mod_id)
+        .map(|(_, _, fid)| fid)
+        .unwrap_or(0);
+    match required_dependencies(mod_id, root_file_id).await {
+        Ok(deps) => queue.extend(deps.into_iter().map(|dep| (dep, mod_id, 0))),
+        Err(error) => failed.push(json!({
+            "modId": mod_id, "code": error.code, "error": error.message,
+            "hint": "Не удалось прочитать зависимости основного файла; обязательно вызови validate_dependencies.",
+        })),
+    }
+
+    while let Some((dep_id, parent_id, depth)) = queue.pop() {
+        if installed.len() + already_installed.len() + failed.len() > MAX_QUEUE {
+            failed.push(json!({
+                "modId": dep_id, "requiredBy": parent_id, "code": "DEP_LIMIT",
+                "error": "Цепочка зависимостей слишком большая; установка остановлена.",
+            }));
+            break;
+        }
+        if !visited.insert(dep_id) {
+            continue;
+        }
+        let index = read_cf_installed(&game_dir);
+        let dep_present = index.projects.contains_key(&dep_id.to_string());
+        let dep_file_id = if dep_present {
+            index.projects.get(&dep_id.to_string()).map(|entry| entry.file_id).unwrap_or(0)
+        } else {
+            match install_file(data, settings, app, instance_id, dep_id, kind, None, None).await {
+                Ok(name) => {
+                    installed.push(json!({ "modId": dep_id, "requiredBy": parent_id, "file": name }));
+                    installed_info(&game_dir)
+                        .into_iter()
+                        .find(|(id, _, _)| *id == dep_id)
+                        .map(|(_, _, fid)| fid)
+                        .unwrap_or(0)
+                }
+                Err(error) => {
+                    failed.push(json!({
+                        "modId": dep_id, "requiredBy": parent_id, "code": error.code, "error": error.message,
+                        "hint": "Не удалось скачать обязательный мод. Попробуй другую версию/загрузчик или установи его с Modrinth, затем вызови validate_dependencies.",
+                    }));
+                    continue;
+                }
+            }
+        };
+        if dep_present {
+            already_installed.push(dep_id);
+        }
+        if depth + 1 >= MAX_DEP_DEPTH {
+            continue;
+        }
+        match required_dependencies(dep_id, dep_file_id).await {
+            Ok(deps) => queue.extend(deps.into_iter().map(|next| (next, dep_id, depth + 1))),
+            Err(error) => failed.push(json!({
+                "modId": dep_id, "requiredBy": parent_id, "code": error.code, "error": error.message,
+                "hint": "Не удалось прочитать зависимости этого мода; вызови validate_dependencies.",
+            })),
+        }
+    }
+
+    Ok(json!({
+        "ok": failed.is_empty(),
+        "instance": instance_id,
+        "modId": mod_id,
+        "kind": kind,
+        "installed": installed,
+        "alreadyInstalled": already_installed,
+        "failed": failed,
+        "note": "Обязательные зависимости CurseForge установлены рекурсивно из метаданных файлов. Перед ответом вызови validate_dependencies для аудита манифестов JAR.",
+    }))
 }
 
 // ---------------------------------------------------------------- modpack install
@@ -957,4 +1110,28 @@ pub async fn install_pack(
 
 pub fn pack_key(mod_id: i64, file_id: Option<i64>) -> String {
     format!("cf:{mod_id}:{}", file_id.unwrap_or(0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_only_required_file_dependencies() {
+        let file: FileItem = serde_json::from_value(json!({
+            "id": 42,
+            "dependencies": [
+                { "modId": 10, "relationType": 3, "isOptional": false },
+                { "modId": 11, "relationType": 3, "isOptional": true },
+                { "modId": 12, "relationType": 4, "isOptional": false },
+                { "modId": 13, "relationType": 6, "isOptional": false }
+            ]
+        }))
+        .expect("file");
+        assert_eq!(required_dependency_ids(&file), vec![10]);
+        let info = file_to_info(&file);
+        assert_eq!(info["requiredDependencies"], json!([10]));
+        assert_eq!(info["dependencies"][0]["required"], json!(true));
+        assert_eq!(info["dependencies"][1]["required"], json!(false));
+    }
 }

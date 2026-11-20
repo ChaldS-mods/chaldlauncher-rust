@@ -88,6 +88,12 @@ impl FriendsService {
         self.token.lock().unwrap().is_some()
     }
 
+    /// The friends token is the only identity the AI API trusts. Never fall back to another account or a local key.
+    pub fn auth_token(&self) -> AppResult<String> {
+        self.token()
+            .ok_or_else(|| AppError::new("FRIENDS_AUTH", "Сначала войди в Chald ID — лимит Чалди привязан к аккаунту."))
+    }
+
     fn token(&self) -> Option<String> {
         self.token.lock().unwrap().clone()
     }
@@ -156,12 +162,20 @@ impl FriendsService {
             .or_else(|| data.get("error"))
             .map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()))
             .unwrap_or_else(|| text.chars().take(200).collect());
+        // A rate-limited AI reply carries the remaining quota in its JSON body; surface it to the user.
+        let mut detailed = detail;
+        if status == 429 && data.get("limit").is_some() {
+            let limit = data.get("limit").and_then(Value::as_u64).unwrap_or(0);
+            let remaining = data.get("remaining").and_then(Value::as_u64).unwrap_or(0);
+            let reset = data.get("resetInSec").and_then(Value::as_u64).unwrap_or(0);
+            detailed = format!("{detailed} (лимит Чалди: {remaining}/{limit}, сброс через {reset} с)");
+        }
         Err(match status {
             401 => AppError::new("FRIENDS_AUTH", "Сессия Chald истекла. Обнови вход."),
-            404 => AppError::new("FRIENDS_NOT_FOUND", if detail.is_empty() { "Не найдено".to_string() } else { detail }),
-            409 => AppError::new("FRIENDS_CONFLICT", if detail.is_empty() { "Конфликт".to_string() } else { detail }),
+            404 => AppError::new("FRIENDS_NOT_FOUND", if detailed.is_empty() { "Не найдено".to_string() } else { detailed.clone() }),
+            409 => AppError::new("FRIENDS_CONFLICT", if detailed.is_empty() { "Конфликт".to_string() } else { detailed.clone() }),
             s if s >= 500 => AppError::new("FRIENDS_DOWN", "Сервер друзей недоступен. Попробуй позже."),
-            s => AppError::new("FRIENDS_HTTP", if detail.is_empty() { format!("Ошибка сервера друзей (HTTP {s})") } else { detail }),
+            s => AppError::new("FRIENDS_HTTP", if detailed.is_empty() { format!("Ошибка сервера друзей (HTTP {s})") } else { detailed }),
         })
     }
 
@@ -179,6 +193,22 @@ impl FriendsService {
             return None;
         }
         Some(json!(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))))
+    }
+
+    /// Agent call: the server owns the model and charges THIS account once per user turn.
+    pub async fn ai_chat(&self, messages: &Value, tools: Option<&Value>, turn_id: Option<&str>) -> AppResult<Value> {
+        let mut body = json!({ "messages": messages });
+        if let Some(tools) = tools {
+            body["tools"] = tools.clone();
+        }
+        if let Some(turn_id) = turn_id.filter(|id| !id.is_empty()) {
+            body["turnId"] = json!(turn_id);
+        }
+        self.request("POST", "/ai/chat", Some(body), true).await
+    }
+
+    pub async fn ai_status(&self) -> AppResult<Value> {
+        self.request("GET", "/ai/status", None, true).await
     }
 
     /// Обрабатывает канал `friends:*`. `None` — канал не принадлежит друзьям.

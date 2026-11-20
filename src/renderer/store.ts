@@ -5,7 +5,7 @@ import type {
 import { ApiError, call, errMsg, on } from './api';
 import { headFromSkin } from './skinHead';
 
-export type Page = 'home' | 'instances' | 'versions' | 'mods' | 'resourcepacks' | 'wardrobe' | 'friends' | 'modrinth' | 'console' | 'mojang' | 'settings';
+export type Page = 'home' | 'instances' | 'versions' | 'mods' | 'resourcepacks' | 'wardrobe' | 'friends' | 'ai' | 'modrinth' | 'console' | 'mojang' | 'settings';
 export interface Toast { id: number; kind: 'ok' | 'error' | 'info'; text: string }
 export type RepairReason = 'crash' | 'missing_mod' | 'incompatibility';
 export interface RepairOffer { instanceId: string; reason: RepairReason; details: string[]; missingDeps: string[] }

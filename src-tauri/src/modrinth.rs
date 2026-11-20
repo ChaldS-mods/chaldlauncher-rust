@@ -250,6 +250,17 @@ async fn api_version(version_id: &str) -> AppResult<MrVersion> {
     net::fetch_json(&format!("{API}/version/{version_id}"), "Modrinth: версия").await
 }
 
+/// Required Modrinth project ids declared by one installed version.
+pub async fn required_dependencies(version_id: &str) -> AppResult<Vec<String>> {
+    let version = api_version(version_id).await?;
+    Ok(version
+        .dependencies
+        .into_iter()
+        .filter(|dep| dep.dependency_type == "required")
+        .filter_map(|dep| dep.project_id)
+        .collect())
+}
+
 fn versions_url(project_id: &str, mc_version: Option<&str>, loaders: Option<&[String]>) -> String {
     let mut url = url::Url::parse(&format!("{API}/project/{project_id}/version"))
         .expect("static Modrinth url");
@@ -493,6 +504,15 @@ pub fn list_installed_projects(game_dir: &Path, kind: &str) -> Vec<String> {
 pub async fn installed(data: &Path, settings: &Settings, id: &str, kind: &str) -> AppResult<Vec<String>> {
     let game_dir = instances::game_dir_of(data, settings, id)?;
     Ok(list_installed_projects(&game_dir, kind))
+}
+
+/// (project id, installed file, version id) for the AI agent's mod tools.
+pub fn installed_info(game_dir: &Path) -> Vec<(String, String, String)> {
+    read_installed(game_dir)
+        .projects
+        .into_iter()
+        .map(|(project_id, info)| (project_id, info.file, info.version_id))
+        .collect()
 }
 
 // ---------------------------------------------------------------- installing

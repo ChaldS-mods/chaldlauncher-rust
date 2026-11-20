@@ -9,7 +9,7 @@ use crate::discord::DiscordRpc;
 use crate::errors::{AppError, AppResult};
 
 pub const PAGES: &[&str] = &[
-    "home", "instances", "versions", "mods", "resourcepacks", "wardrobe", "friends", "modrinth", "console", "mojang", "settings",
+    "home", "instances", "versions", "mods", "resourcepacks", "wardrobe", "friends", "ai", "modrinth", "console", "mojang", "settings",
 ];
 
 /// Имя картинки, загруженной в приложение Discord (Rich Presence → Art Assets).
@@ -23,6 +23,7 @@ fn page_label(lang: &str, page: &str) -> &'static str {
         ("en", "resourcepacks") => "Managing resource packs",
         ("en", "wardrobe") => "In the wardrobe",
         ("en", "friends") => "With friends",
+        ("en", "ai") => "Chatting with Chaldi",
         ("en", "modrinth") => "Browsing mods (CF+MR)",
         ("en", "console") => "Viewing the console",
         ("en", "mojang") => "Browsing other Mojang games",
@@ -34,6 +35,7 @@ fn page_label(lang: &str, page: &str) -> &'static str {
         ("kk", "resourcepacks") => "Ресурс пакеттерін баптауда",
         ("kk", "wardrobe") => "Гардеробта",
         ("kk", "friends") => "Достарда",
+        ("kk", "ai") => "Чалдимен сөйлесуде",
         ("kk", "modrinth") => "Мод іздеуде CF+MR",
         ("kk", "console") => "Консольді қарауда",
         ("kk", "mojang") => "Mojang-тың басқа ойындарын қарауда",
@@ -45,6 +47,7 @@ fn page_label(lang: &str, page: &str) -> &'static str {
         ("be", "resourcepacks") => "Наладжвае рэсурспакі",
         ("be", "wardrobe") => "У гардэробе",
         ("be", "friends") => "У сябрах",
+        ("be", "ai") => "Размаўляе з Чалди",
         ("be", "modrinth") => "Шукае моды CF+MR",
         ("be", "console") => "Глядзіць кансоль",
         ("be", "mojang") => "Праглядае іншыя гульні Mojang",
@@ -56,6 +59,7 @@ fn page_label(lang: &str, page: &str) -> &'static str {
         (_, "resourcepacks") => "Настраивает ресурспаки",
         (_, "wardrobe") => "В гардеробе",
         (_, "friends") => "В друзьях",
+        (_, "ai") => "Общается с Чалди",
         (_, "modrinth") => "Ищет моды CF+MR",
         (_, "console") => "Смотрит консоль",
         (_, "mojang") => "Смотрит другие игры Mojang",

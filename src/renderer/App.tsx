@@ -18,6 +18,7 @@ import { SettingsPage } from './pages/Settings';
 import { VersionsPage } from './pages/Versions';
 import { WardrobePage } from './pages/Wardrobe';
 import { FriendsPage } from './pages/Friends';
+import { AiChatPage } from './pages/AiChat';
 import { useI18n } from './i18n';
 import { useStore, type Page } from './store';
 
@@ -30,6 +31,7 @@ function PageView({ page }: { page: Page }) {
     case 'resourcepacks': return <ContentPage kind="resourcepacks" />;
     case 'wardrobe': return <WardrobePage />;
     case 'friends': return <FriendsPage />;
+    case 'ai': return <AiChatPage />;
     case 'modrinth': return <ModrinthPage />;
     case 'console': return <ConsolePage />;
     case 'mojang': return <MojangPage />;
